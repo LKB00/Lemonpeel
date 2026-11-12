@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useLayoutEffect, useRef, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { DockCtx } from './ctx.js';
-import { Search, ChevronDown, ChevronRight, Sparkles, Star, X, Coins, Check, ArrowLeftRight, LayoutTemplate, Palette as PaletteIcon, CornerDownLeft, Play, Inbox, Clock, Ellipsis, LayoutPanelTop, Archive } from './ri.js';
+import { Search, ChevronDown, ChevronRight, Sparkles, Star, X, Coins, Check, ArrowLeftRight, LayoutTemplate, Palette as PaletteIcon, CornerDownLeft, Play, Inbox, Clock, Ellipsis, LayoutPanelTop, Archive, Upload, RatioWide, RatioTall, RatioSquare, RatioPortrait } from './ri.js';
 import { KINDS, KIND_ORDER, MODELS, MODEL_GROUPS, TEMPLATES, costOf, secsOf, fmtSecs, fmtCr, findModel, SHORTCUTS } from './data.js';
 import { ASSETS, waveBars } from './art.js';
 import { Ico, KindTile } from './icons.jsx';
@@ -517,69 +517,139 @@ export function FormView({ nodes, edges, actions, balance, projectName, toCanvas
     );
   }
 
-  const out = mainOut && (mainOut.data.takes || [])[mainOut.data.takeIdx ?? mainOut.data.takes.length - 1];
+  const takeOf = (n) => (n.data.takes || [])[n.data.takeIdx ?? (n.data.takes || []).length - 1];
+  const out = mainOut && takeOf(mainOut);
   const after = balance - total;
+  const doneN = gens.filter((n) => n.data.status === 'done').length;
+  const others = gens.filter((n) => n !== mainOut && takeOf(n));
+  const open = (n) => { toCanvas(); setTimeout(() => actions.focusTake(n.id, Math.max(0, (n.data.takes || []).length - 1)), 60); };
 
   return (
-    <div className="formview">
-      <section className="fv-main">
-        <header className="fv-head"><div><h1>{projectName}</h1><p>Fill in the details and generate.</p></div><button className="btn btn-ghost btn-sm" onClick={toCanvas}><Ico as={ArrowLeftRight} size={14} /> Edit steps</button></header>
-        {exposed.map((n) => {
-          const ex = n.data.expose;
-          if (n.data.kind === 'upload') {
-            return (
-              <Field key={n.id} label={ex.label}>
-                {ex.help && <p className="hint">{ex.help}</p>}
-                <div className="assets four">
-                  {ASSETS.map((a) => (
-                    <button key={a.id} className={`asset ${n.data.asset === a.id ? 'on' : ''}`} onClick={() => actions.update(n.id, { asset: a.id })}>
-                      <img src={a.url} alt="" /><span>{a.name}</span>
-                    </button>
+    <div className="formview fv2">
+      <div className="fv2-wrap">
+        <section className="fv2-panel fv2-in" aria-label="Inputs">
+          <header className="fv2-h"><h2>Inputs</h2></header>
+          <div className="fv2-body">
+            {exposed.map((n) => {
+              const ex = n.data.expose;
+              if (n.data.kind === 'upload') return <FvField key={n.id} label={ex.label} hint={ex.help}><FvAsset value={n.data.asset} onPick={(id) => actions.update(n.id, { asset: id })} toast={actions.toast} /></FvField>;
+              if (ex.type === 'choice') {
+                return (
+                  <FvField key={n.id} label={ex.label}>
+                    <div className="fv2-chips" role="radiogroup">
+                      {ex.options.map((o) => <button key={o} type="button" role="radio" aria-checked={o === n.data.prompt} className={o === n.data.prompt ? 'on' : ''} onClick={() => actions.update(n.id, { prompt: o })}>{o}</button>)}
+                    </div>
+                  </FvField>
+                );
+              }
+              return <FvField key={n.id} label={ex.label} hint={ex.help}><textarea className="fv2-ta" rows={3} value={n.data.prompt} onChange={(e) => actions.update(n.id, { prompt: e.target.value })} /></FvField>;
+            })}
+            {aspectNodes.length > 0 && (
+              <FvField label="Format">
+                <div className="fv2-chips" role="radiogroup">
+                  {[['16:9', RatioWide], ['9:16', RatioTall], ['1:1', RatioSquare], ['4:5', RatioPortrait]].map(([v, I]) => (
+                    <button key={v} type="button" role="radio" aria-checked={v === aspect} className={v === aspect ? 'on' : ''} onClick={() => aspectNodes.forEach((n) => actions.update(n.id, { aspect: v }))}><Ico as={I} size={14} />{v}</button>
                   ))}
                 </div>
-              </Field>
-            );
-          }
-          if (ex.type === 'choice') {
-            return <Field key={n.id} label={ex.label}><Seg options={ex.options} value={n.data.prompt} onChange={(v) => actions.update(n.id, { prompt: v })} /></Field>;
-          }
-          return <Field key={n.id} label={ex.label}><textarea className="input ta" rows={3} value={n.data.prompt} onChange={(e) => actions.update(n.id, { prompt: e.target.value })} /></Field>;
-        })}
-        {aspectNodes.length > 0 && (
-          <div className="two">
-            <Field label="Aspect ratio"><Seg options={['16:9', '9:16', '1:1', '4:5']} value={aspect} onChange={(v) => aspectNodes.forEach((n) => actions.update(n.id, { aspect: v }))} /></Field>
+              </FvField>
+            )}
             {videos.length > 0 && (
-              <Field label="Video length" aside={`${dur}s`}>
-                <input type="range" min="3" max="10" step="1" value={dur} onChange={(e) => videos.forEach((n) => actions.update(n.id, { duration: Number(e.target.value) }))} aria-label="Video length" />
-                <div className="range-l"><span>3s</span><span>10s</span></div>
-              </Field>
+              <FvField label="Length">
+                <div className="fv2-chips" role="radiogroup">
+                  {[5, 8, 10].map((v) => <button key={v} type="button" role="radio" aria-checked={v === dur} className={v === dur ? 'on' : ''} onClick={() => videos.forEach((n) => actions.update(n.id, { duration: v }))}>{v}s</button>)}
+                </div>
+              </FvField>
             )}
           </div>
-        )}
-      </section>
+          <footer className="fv2-f">
+            {after < 0 ? (
+              <button className="btn btn-primary btn-lg wide" onClick={() => actions.openCredits(total - balance)}>Add credits</button>
+            ) : (
+              <button className="btn btn-primary btn-lg wide" disabled={anyRunning} onClick={() => actions.runAll(true)}>
+                {anyRunning ? 'Generating…' : <>{allDone ? 'Generate again' : 'Generate'}<span className="cost">{fmtCr(total)}</span></>}
+              </button>
+            )}
+            <small>{after < 0 ? `Needs ${fmtCr(total - balance)} more credits` : `Balance ${fmtCr(balance)}`}</small>
+          </footer>
+        </section>
 
-      <aside className="fv-side right">
-                <div className="fv-out">
-          {out?.url ? (
-            <div className={`media ${mainOut.data.kind === 'video' ? 'vid playing' : ''}`}><img src={out.url} alt="" /></div>
-          ) : out?.text ? (
-            <pre className="textout">{out.text}</pre>
-          ) : (
-            <div className="fv-out-e">{anyRunning ? <><span className="pdot" />Generating…</> : <><Ico as={Sparkles} size={18} />Your result appears here</>}</div>
+        <section className="fv2-panel fv2-out" aria-label="Result">
+          <header className="fv2-h">
+            <h2>{mainOut ? (mainOut.data.title || KINDS[mainOut.data.kind].label) : 'Result'}</h2>
+            {anyRunning ? <span className="fv2-st"><span className="pdot" />{doneN} of {gens.length} done</span> : out ? <button className="btn btn-ghost btn-sm" onClick={() => open(mainOut)}>Open in canvas</button> : null}
+          </header>
+          <div className={`fv2-stage ${aspect === '9:16' || aspect === '4:5' ? 'tall' : ''}`}>
+            {anyRunning || !out ? (
+              <div className={`fv2-ph ${anyRunning ? 'sh' : ''}`}>{!anyRunning && <span>Your {mainOut ? KINDS[mainOut.data.kind].label.toLowerCase() : 'result'} appears here</span>}</div>
+            ) : out.url ? (
+              <div className="fv2-media"><img src={out.url} alt="" />{mainOut.data.kind === 'video' && <span className="fv2-play"><Ico as={Play} size={18} /></span>}</div>
+            ) : out.text ? <pre className="fv2-text">{out.text}</pre> : <div className="fv2-ph"><span>No preview</span></div>}
+          </div>
+          {others.length > 0 && (
+            <>
+              <h3 className="fv2-sub">Also made</h3>
+              <div className="fv2-also">
+                {others.map((n) => {
+                  const t = takeOf(n);
+                  return (
+                    <button key={n.id} type="button" className="fv2-card" onClick={() => open(n)} data-tip="Open in canvas">
+                      <span className="fv2-card-m">
+                        {t.url ? <img src={t.url} alt="" /> : t.text ? <span className="fv2-card-t">{t.text.slice(0, 90)}</span> : <span className="owave">{waveBars(t.seed, 18).map((v, j) => <i key={j} style={{ height: `${v * 100}%` }} />)}</span>}
+                      </span>
+                      <span className="fv2-card-n"><KindTile kind={n.data.kind} size="sm" />{n.data.title || KINDS[n.data.kind].label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function FvField({ label, hint, children }) {
+  return (
+    <div className="fv2-field">
+      <div className="fv2-l"><span>{label}</span>{hint && <small>{hint}</small>}</div>
+      {children}
+    </div>
+  );
+}
+
+// The chosen asset as one row; "Change" floats a picker of the same type
+function FvAsset({ value, onPick, toast }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const down = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
+    const key = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', down, true); document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('mousedown', down, true); document.removeEventListener('keydown', key); };
+  }, [open]);
+  const cur = ASSETS.find((a) => a.id === value);
+  const list = ASSETS.filter((a) => a.type === (cur?.type || 'image'));
+  return (
+    <div className="fv2-asset" ref={wrap}>
+      <button type="button" className={`fv2-arow ${open ? 'on' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open}>
+        {cur ? <img src={cur.url} alt="" /> : <span className="fv2-athumb" />}
+        <span className="grow"><b>{cur ? cur.name : 'Choose a file'}</b>{cur && <small>{cur.cat}</small>}</span>
+        <span className="fv2-change">Change</span>
+      </button>
+      {open && (
+        <div className="popover menu fv2-pick" role="menu">
+          <button type="button" className="bopt" onClick={() => { setOpen(false); toast('Upload opens your files (prototype)'); }}><span className="bpick-none"><Ico as={Upload} size={14} /></span><span className="grow">Upload</span></button>
+          <div className="fv2-grid">
+            {list.map((a) => (
+              <button key={a.id} type="button" className={`fv2-tile ${a.id === value ? 'on' : ''}`} onClick={() => { setOpen(false); onPick(a.id); }} data-tip={a.name} aria-label={a.name}>
+                <img src={a.url} alt="" />{a.id === value && <span className="fv2-check"><Ico as={Check} size={12} /></span>}
+              </button>
+            ))}
+          </div>
         </div>
-        <dl className="summary">
-          <div><dt>Total</dt><dd><span className="num">{fmtCr(total)}</span> cr</dd></div>
-          <div className="total"><dt>Balance after</dt><dd className={after < 0 ? 'neg' : ''}><span className="num">{fmtCr(after)}</span> cr</dd></div>
-        </dl>
-        {after < 0 ? (
-          <button className="btn btn-warn btn-lg wide" onClick={() => actions.openCredits(total - balance)}>Add credits to generate</button>
-        ) : (
-          <button className="btn btn-primary btn-lg wide" disabled={anyRunning} onClick={() => actions.runAll(true)}>
-            {anyRunning ? 'Generating…' : <>{allDone ? 'Generate again' : 'Generate'}<span className="cost">{fmtCr(total)}</span></>}
-          </button>
-        )}
-      </aside>
+      )}
     </div>
   );
 }
