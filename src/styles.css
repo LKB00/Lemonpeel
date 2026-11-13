@@ -2512,3 +2512,42 @@ kbd.onyellow { background: none !important; color: rgba(10, 10, 10, .55); }
 .cp-acts { display: flex; justify-content: flex-end; gap: 6px; }
 .brief-assets { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
 .brief-asset { width: auto; height: auto; aspect-ratio: 1; }
+
+/* =====================================================================
+   Empty states: drawing · title · one line · actions
+   ===================================================================== */
+.es { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 32px 16px; margin: 0; border: 0; color: var(--text-3); }
+.es .ea { width: 120px; height: 80px; margin-bottom: 12px; flex: none; }
+.es-t { font: var(--t-ui); color: var(--text); }
+.es-p { font: var(--t-sm); color: var(--text-3); max-width: 240px; text-wrap: balance; }
+.es-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 14px; }
+.es-lg { padding: 40px 24px; gap: 6px; }
+.es-lg .ea { width: 180px; height: 120px; margin-bottom: 16px; }
+.es-lg .es-t { font: var(--t-h1); letter-spacing: var(--track-snug); }
+.es-lg .es-p { font: var(--t-body); color: var(--text-2); max-width: 340px; }
+.es-lg .es-acts { margin-top: 18px; }
+.es-sm { padding: 20px 8px; gap: 2px; }
+.es-i { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; margin-bottom: 8px; background: rgba(255, 255, 255, .06); color: var(--text-2); }
+.es-sm .es-t { font: var(--t-sm); color: var(--text-2); }
+.es-sm .es-p { font: var(--t-xs); }
+.ea-1 { fill: rgba(255, 255, 255, .05); }
+.ea-2 { fill: rgba(255, 255, 255, .09); }
+.ea-3 { fill: rgba(255, 255, 255, .16); }
+.ea-a { fill: var(--accent); }
+.ea-at { fill: var(--accent-tint); }
+.ea-ink { fill: var(--accent-ink); }
+.ea-ok { fill: var(--success); }
+.ea-okt { fill: rgba(95, 207, 143, .14); }
+.agent-empty > .es { padding: 24px 8px 12px; }
+.fv2-ph > .es { padding: 16px; }
+.fv-blank { display: grid; place-items: center; }
+.ea-1 { fill: rgba(255, 255, 255, .08); }
+.ea-2 { fill: rgba(255, 255, 255, .14); }
+.ea-3 { fill: rgba(255, 255, 255, .24); }
+.ea-at { fill: rgba(250, 212, 6, .16); }
+.ea-okt { fill: rgba(95, 207, 143, .18); }
+.es svg.ea { width: 120px !important; height: 80px !important; }
+.es-lg svg.ea { width: 180px !important; height: 120px !important; }
+.es .es-i svg { width: 16px; height: 16px; }
+.es-lg .es-p { width: 340px; max-width: 100%; }
+.es-md .es-p { width: 240px; max-width: 100%; }

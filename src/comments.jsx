@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Ellipsis, X, ArrowUp, Pencil, Trash2, RotateCcw } from './ri.js';
 import { Ico } from './icons.jsx';
+import { Empty } from './empty.jsx';
 
 /* =====================================================================
    Comments, the way design and whiteboard tools do them:
@@ -221,7 +222,9 @@ export function CommentsPanel({ comments, rf, openId, onOpen, nodeTitle }) {
         <button className={`fchip ${show === 'open' ? 'on' : ''}`} onClick={() => setShow('open')}>Open{open.length ? <span className="n">{open.length}</span> : null}</button>
         <button className={`fchip ${show === 'resolved' ? 'on' : ''}`} onClick={() => setShow('resolved')}>Resolved{done.length ? <span className="n">{done.length}</span> : null}</button>
       </div>
-      {!list.length && <p className="cmt-empty">{show === 'open' ? 'No open comments' : 'Nothing resolved yet'}</p>}
+      {!list.length && (show === 'open'
+        ? <Empty art="comments" title="No open comments" text="Press C, then click anywhere to leave one." />
+        : <Empty art="resolved" title="Nothing resolved yet" text="Resolved threads move here." />)}
       <ul className="cmt-list">
         {list.map((t) => {
           const first = t.messages[0];

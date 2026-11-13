@@ -5,6 +5,7 @@ import { Search, ChevronDown, ChevronRight, Sparkles, Star, X, Coins, Check, Arr
 import { KINDS, KIND_ORDER, MODELS, MODEL_GROUPS, TEMPLATES, costOf, secsOf, fmtSecs, fmtCr, findModel, SHORTCUTS } from './data.js';
 import { ASSETS, waveBars } from './art.js';
 import { Ico, KindTile } from './icons.jsx';
+import { Empty } from './empty.jsx';
 import { BrandPicker } from './create.jsx';
 
 /* ---------------- Left panel ---------------- */
@@ -464,7 +465,9 @@ export function Outputs({ nodes, actions, onClose }) {
         ))}
       </div>
       {!items.length && (
-        <div className="emptybox"><Ico as={Inbox} size={20} /><p>{filter === 'fav' ? 'Nothing starred yet' : 'No results yet'}</p><span>{filter === 'fav' ? 'Star a take to keep it here.' : 'Generate a node and every take collects here.'}</span></div>
+        filter === 'fav'
+          ? <Empty art="starred" title="Nothing starred" text="Star a take to keep it here." />
+          : <Empty art="outputs" title={filter === 'recent' ? 'No results yet' : `No ${{ video: 'videos', image: 'images', audio: 'audio', text: 'text' }[filter]} yet`} text="Every take you generate lands here." />
       )}
       <div className="ogrid">
         {items.map(({ n, t, i, type }) => {
@@ -504,15 +507,10 @@ export function FormView({ nodes, edges, actions, balance, projectName, toCanvas
   if (!exposed.length && !gens.length) {
     return (
       <div className="formview fv-blank">
-        <div className="fv-empty">
-          <span className="ktile lg"><Ico as={LayoutTemplate} size={20} /></span>
-          <h2>No form yet</h2>
-          <p>Form view turns a canvas into a simple form. Start from a template, or turn on <b>Show in Form view</b> for a Text note or Upload.</p>
-          <div className="row">
-            <button className="btn btn-invert" onClick={() => actions.setLeftTab('templates', true)}>Browse templates</button>
-            <button className="btn btn-secondary" onClick={toCanvas}>Back to canvas</button>
-          </div>
-        </div>
+        <Empty size="lg" art="form" title="No form yet" text="Start from a template, or show a Text note or Upload in Form view.">
+          <button className="btn btn-invert" onClick={() => actions.setLeftTab('templates', true)}>Browse templates</button>
+          <button className="btn btn-secondary" onClick={toCanvas}>Back to canvas</button>
+        </Empty>
       </div>
     );
   }
@@ -580,7 +578,7 @@ export function FormView({ nodes, edges, actions, balance, projectName, toCanvas
           </header>
           <div className={`fv2-stage ${aspect === '9:16' || aspect === '4:5' ? 'tall' : ''}`}>
             {anyRunning || !out ? (
-              <div className={`fv2-ph ${anyRunning ? 'sh' : ''}`}>{!anyRunning && <span>Your {mainOut ? KINDS[mainOut.data.kind].label.toLowerCase() : 'result'} appears here</span>}</div>
+              <div className={`fv2-ph ${anyRunning ? 'sh' : ''}`}>{!anyRunning && <Empty art={mainOut && KINDS[mainOut.data.kind].output === 'text' ? 'form' : 'outputs'} title={`Your ${mainOut ? KINDS[mainOut.data.kind].label.toLowerCase() : 'result'} appears here`} text="Fill in the inputs, then Generate." />}</div>
             ) : out.url ? (
               <div className="fv2-media"><img src={out.url} alt="" />{mainOut.data.kind === 'video' && <span className="fv2-play"><Ico as={Play} size={18} /></span>}</div>
             ) : out.text ? <pre className="fv2-text">{out.text}</pre> : <div className="fv2-ph"><span>No preview</span></div>}
@@ -717,7 +715,7 @@ export function Palette({ onClose, onPick, commands, title }) {
               {c.kbd ? <kbd>{c.kbd}</kbd> : j === i ? <Ico as={CornerDownLeft} size={14} className="dim" /> : null}
             </button>
           ))}
-          {!items.length && <p className="hint pad">Nothing matches “{q}”.</p>}
+          {!items.length && <Empty size="sm" icon={Search} title={`No matches for “${q}”`} />}
         </div>
       </div>
     </div>

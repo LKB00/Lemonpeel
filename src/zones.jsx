@@ -3,6 +3,7 @@ import { Sparkles, ArrowUp, X, Check, Loader2, Bot, Settings2, GalleryHorizontal
 import { BrandMark, readMedia } from './extras.jsx';
 import { KINDS, fmtCr, fmtSecs } from './data.js';
 import { Ico, KindTile } from './icons.jsx';
+import { Empty } from './empty.jsx';
 
 /* =====================================================================
    LEFT · Make & bring in
@@ -148,7 +149,7 @@ export function AgentPanel({ onRevert, composer, messages, auto, setAuto, onAppr
       <div className="agent-feed">
         {!messages.length && (
           <div className="agent-empty">
-            <p className="agent-hello">What should we make? Describe a result and I'll lay out the steps on the canvas. Select a node first to change just that one.</p>
+            <Empty art="agent" title="What should we make?" text="Describe a result and I'll lay out the steps. Select a node first to change just that one." />
             <span className="label">Try</span>
             {suggestions.map((x) => (
               <button key={x.text} className="suggest" onClick={() => onAsk(x.text, x.targets)}>
@@ -511,7 +512,7 @@ export function Composer({ selection, onAsk, auto, setAuto, ctx, kinds, kind, se
                     <div className="cpill-scroll">
                       {list.length ? list.map((it) => (
                         <Opt key={it.id} raw icon={it.thumb ? <img className="bopt-th" src={it.thumb} alt="" /> : <KindTile kind={it.kind} size="xs" />} label={it.name} onClick={() => attach(it)} />
-                      )) : <p className="cpill-empty">Nothing here yet</p>}
+                      )) : <Empty size="sm" icon={Archive} title="Nothing here yet" />}
                     </div>
                   </>);
                 })()}
@@ -544,7 +545,7 @@ export function Composer({ selection, onAsk, auto, setAuto, ctx, kinds, kind, se
 }
 
 export function RunsPanel({ runs, onCancel, onFocus }) {
-  if (!runs.length) return <div className="runs-empty">Nothing generated yet</div>;
+  if (!runs.length) return <Empty art="runs" title="Nothing generated yet" text="Runs show up here while they work." />;
   // live work first, then newest
   const live = (r) => (r.status === 'running' || r.status === 'queued' ? 1 : 0);
   const list = [...runs].reverse().sort((a, b) => live(b) - live(a));

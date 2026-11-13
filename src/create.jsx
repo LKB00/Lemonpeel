@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Plus, Check, ArrowRight, Upload, ChevronDown, Palette } from './ri.js';
 import { KINDS, MODELS, PORT_COLORS, costOf, secsOf, fmtCr, fmtSecs } from './data.js';
 import { Ico, KindTile } from './icons.jsx';
+import { Empty } from './empty.jsx';
 import { Field, Seg, ModelPicker } from './panels.jsx';
 import { PORT_ICONS } from './StudioNode.jsx';
 import { readMedia, BrandMark } from './extras.jsx';
@@ -241,7 +242,7 @@ export function CreatePanel({ kind, actions, assets, nodes, outputOf, selection,
                           ))}
                         </>
                       )}
-                      {!lib.length && !canvas.length && <p className="cp-empty">Nothing to use yet.</p>}
+                      {!lib.length && !canvas.length && <Empty size="sm" icon={Upload} title="Nothing to use yet" text="Upload a file, or generate something first." />}
                       </div>
                       <footer className="cs-f">
                         <button className="btn btn-invert" onClick={() => setPicking(null)}>{p.multi ? (n ? `Done · ${n} added` : 'Done') : 'Close'}</button>

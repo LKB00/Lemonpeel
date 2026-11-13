@@ -3,6 +3,7 @@ import { DockCtx, StudioCtx } from './ctx.js';
 import { NodeResizer, useReactFlow } from '@xyflow/react';
 import { X, Upload, Link2, Check, ChevronLeft, ChevronRight, Download, Palette, Sparkles, UserPlus, Copy, Plus, Search, Settings2, Play, Pause, Ellipsis, Pencil, Trash2, ChevronDown, Crosshair } from './ri.js';
 import { Ico } from './icons.jsx';
+import { Empty } from './empty.jsx';
 import { Seg } from './panels.jsx';
 import { hash, waveBars, ASSET_TYPES } from './art.js';
 
@@ -217,10 +218,9 @@ export function AssetsModal({ assets, onClose, onAdd, onUpload, onRemove, onRena
 
         {sections}
         {empty && (
-          <div className="as-empty">
-            <b>{q || activeFilters ? 'No matches' : 'Nothing here yet'}</b>
-            {(q || activeFilters > 0) ? <button className="linkbtn" onClick={() => { setQ(''); setAspect('Any'); setSource('Any'); setCat('All'); }}>Clear search and filters</button> : <span>Upload, or save a result from the canvas.</span>}
-          </div>
+          (q || activeFilters > 0)
+            ? <Empty art="search" title="No matches" text="Try another word, or clear the filters."><button className="btn btn-secondary btn-sm" onClick={() => { setQ(''); setAspect('Any'); setSource('Any'); setCat('All'); }}>Clear search and filters</button></Empty>
+            : <Empty art="assets" title="Nothing here yet" text="Upload, or save a result from the canvas." />
         )}
         {over && <div className="assets-over"><Ico as={Upload} size={20} /><span>Drop to upload</span></div>}
         {showFilters && (
