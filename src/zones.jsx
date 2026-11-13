@@ -138,7 +138,7 @@ export function RightTabs({ tab, counts, onClose, actions }) {
   );
 }
 
-export function AgentPanel({ onRevert, composer, messages, auto, setAuto, onApprove, onDiscard, onAsk, onClear, onToggleStep, balance, nodeInfo, onFocusNode, selection, suggestions }) {
+export function AgentPanel({ onRevert, composer, messages, auto, setAuto, onApprove, onDiscard, onAsk, onClear, onToggleStep, balance, nodeInfo, onFocusNode, selection, suggestions, onAnswer, onFinal, onRetake }) {
   const end = useRef(null);
   const [open, setOpen] = useState({});
   useEffect(() => { end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }); }, [messages.length, messages[messages.length - 1]]);
@@ -166,7 +166,16 @@ export function AgentPanel({ onRevert, composer, messages, auto, setAuto, onAppr
               </div>
             );
           }
-          if (m.thinking) return <div key={m.id} className="msg agent"><span className="agent-av sm"><Ico as={Sparkles} size={12} /></span><span className="typing"><i /><i /><i /></span></div>;
+          if (m.thinking) return (
+            <div key={m.id} className="msg agent">
+              <span className="agent-av sm"><Ico as={Sparkles} size={12} /></span>
+              {m.trace ? (
+                <ol className="trace" aria-live="polite">
+                  {m.trace.map((t, i) => <li key={i} style={{ '--d': `${i * 380}ms`, '--e': `${(i + 1) * 380}ms` }}><span className="trace-i"><Ico as={Loader2} size={12} className="spin" /><Ico as={Check} size={12} /></span>{t}</li>)}
+                </ol>
+              ) : <span className="typing"><i /><i /><i /></span>}
+            </div>
+          );
           const p = m.proposal;
           const collapsed = p && p.status !== 'pending' && m.id !== lastPlan && !open[m.id];
           return (
@@ -192,7 +201,8 @@ export function AgentPanel({ onRevert, composer, messages, auto, setAuto, onAppr
                         </div>
                       </div>
                     )}
-                    {p && <Plan p={p} id={m.id} auto={auto} setAuto={setAuto} isLast={m.id === lastPlan} onApprove={onApprove} onDiscard={onDiscard} onToggleStep={onToggleStep} balance={balance} nodeInfo={nodeInfo} onFocusNode={onFocusNode} onAsk={onAsk} />}
+                    {m.brief && <Brief b={m.brief} onAnswer={(v) => onAnswer(m.id, v)} />}
+                    {p && <Plan p={p} id={m.id} onFinal={onFinal} onRetake={onRetake} auto={auto} setAuto={setAuto} isLast={m.id === lastPlan} onApprove={onApprove} onDiscard={onDiscard} onToggleStep={onToggleStep} balance={balance} nodeInfo={nodeInfo} onFocusNode={onFocusNode} onAsk={onAsk} />}
                   </>
                 )}
               </div>
@@ -210,21 +220,33 @@ export function AgentPanel({ onRevert, composer, messages, auto, setAuto, onAppr
 const activeCost = (p) => p.steps.reduce((s, x, i) => s + ((p.off || []).includes(i) ? 0 : x.cost), 0);
 const activeSecs = (p) => p.steps.reduce((s, x, i) => s + ((p.off || []).includes(i) ? 0 : x.secs || 0), 0);
 
-function Plan({ p, id, auto, setAuto, isLast, onApprove, onDiscard, onToggleStep, balance, nodeInfo, onFocusNode, onAsk }) {
+function Plan({ p, id, auto, setAuto, isLast, onApprove, onDiscard, onToggleStep, balance, nodeInfo, onFocusNode, onAsk, onFinal, onRetake }) {
   const cost = activeCost(p);
   const short = cost > balance;
   const off = p.off || [];
   const tracking = p.status === 'approved' && (p.tracked?.length || 0) > 0;
   const infos = tracking ? p.tracked.map((t) => ({ ...t, info: nodeInfo(t.nodeId, t.base) })) : [];
-  const done = tracking && infos.every((t) => !t.info || t.info.done);
-  const runningIdx = infos.findIndex((t) => t.info && t.info.status === 'running');
+  const phaseOf = (i) => p.steps[i]?.phase;
+  const inDraft = tracking && p.phase === 'draft';
+  const draftInfos = infos.filter((t) => phaseOf(t.step) !== 'final');
+  const draftDone = inDraft && draftInfos.every((t) => !t.info || t.info.done);
+  const done = tracking && !inDraft && infos.every((t) => !t.info || t.info.done);
+  const shown = inDraft ? draftInfos : infos;
+  const runningIdx = shown.findIndex((t) => t.info && t.info.status === 'running');
+  const draftCost = p.steps.reduce((a, x, i) => a + (off.includes(i) || x.phase === 'final' ? 0 : x.cost), 0);
+  const finalCost = p.steps.reduce((a, x, i) => a + (off.includes(i) || x.phase !== 'final' ? 0 : x.cost), 0);
+  const firstFinal = p.phased ? p.steps.findIndex((x) => x.phase === 'final') : -1;
+  const hasVideo = p.steps.some((x, i) => x.phase === 'final' && x.kind === 'video' && !off.includes(i));
+  const looks = draftDone ? draftInfos.filter((t) => t.info?.thumb && p.steps[t.step].kind === 'image') : [];
+  const card = useRef(null);
+  useEffect(() => { if (isLast && (draftDone || done)) setTimeout(() => card.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }), 60); }, [draftDone, done]);
   const result = done ? [...infos].reverse().find((t) => t.info && t.info.thumb) || infos[infos.length - 1] : null;
 
   return (
-    <div className={`plancard s-${p.status}`}>
+    <div ref={card} className={`plancard s-${p.status}`}>
       <div className="plancard-h">
         <span>{p.kind === 'build' ? `Plan · ${p.steps.length - off.length} step${p.steps.length - off.length === 1 ? '' : 's'}` : 'Change'}</span>
-        {tracking ? <span className={`pill ${done ? 'ok' : 'run'}`}>{done ? <><Ico as={Check} size={12} /> Done</> : <><span className="pdot" /> {runningIdx >= 0 ? `Step ${runningIdx + 1} of ${infos.length}` : 'Queued'}</>}</span>
+        {tracking ? <span className={`pill ${done || draftDone ? 'ok' : 'run'}`}>{done ? <><Ico as={Check} size={12} /> Done</> : draftDone ? <><Ico as={Check} size={12} /> Draft ready</> : <><span className="pdot" /> {inDraft ? 'Draft · ' : ''}{runningIdx >= 0 ? `Step ${runningIdx + 1} of ${shown.length}` : 'Queued'}</>}</span>
           : p.status === 'approved' ? <span className="pill ok"><Ico as={Check} size={12} /> Added</span>
           : p.status === 'discarded' ? <span className="pill">Discarded</span> : null}
       </div>
@@ -233,8 +255,11 @@ function Plan({ p, id, auto, setAuto, isLast, onApprove, onDiscard, onToggleStep
           const t = tracking ? infos.find((x) => x.step === i) : null;
           const inf = t?.info;
           const excluded = off.includes(i);
+          const waiting = inDraft && s.phase === 'final' && !(inf && (inf.status === 'running' || inf.status === 'queued'));
           return (
-            <li key={i} className={`${excluded ? 'excluded' : ''}`}>
+            <React.Fragment key={i}>
+            {i === firstFinal && <li className="plan-sep">{p.status === 'pending' ? 'After you check the draft' : 'Final'}<span className="num">{fmtCr(finalCost)}</span></li>}
+            <li className={`${excluded ? 'excluded' : ''} ${waiting ? 'waiting' : ''}`}>
               {p.status === 'pending' ? (
                 <label className="stepcheck" data-tip={excluded ? 'Include this step' : 'Skip this step'}>
                   <input type="checkbox" checked={!excluded} onChange={() => onToggleStep(id, i)} /><i aria-hidden="true"><Ico as={Check} size={11} /></i>
@@ -244,22 +269,45 @@ function Plan({ p, id, auto, setAuto, isLast, onApprove, onDiscard, onToggleStep
                 <b>{s.title}</b><span>{s.note}</span>
               </button>
               <span className="stepstate">
-                {excluded && p.status !== 'pending' ? <span className="dim">Skipped</span> : inf ? (inf.done ? <Ico as={Check} size={14} className="okc" /> : inf.status === 'running' ? <span className="num">{inf.progress || 0}%</span> : inf.status === 'queued' ? <span className="dim">Queued</span> : <span className="dim">—</span>)
+                {excluded && p.status !== 'pending' ? <span className="dim">Skipped</span> : waiting ? <span className="dim">After review</span> : inf ? (inf.done ? <Ico as={Check} size={14} className="okc" /> : inf.status === 'running' ? <span className="num">{inf.progress || 0}%</span> : inf.status === 'queued' ? <span className="dim">Queued</span> : <span className="dim">—</span>)
                   : s.cost ? <span className="num dim">{fmtCr(s.cost)}</span> : <span className="dim">free</span>}
               </span>
             </li>
+            </React.Fragment>
           );
         })}
       </ol>
+      {draftDone && (
+        <div className="checkpoint">
+          {looks.length > 0 && (
+            <div className="cp-looks">
+              {looks.map((t) => <button key={t.nodeId} className="cp-look" onClick={() => onFocusNode(t.nodeId)} aria-label={`Open ${t.info.title}`}><img src={t.info.thumb} alt="" /></button>)}
+            </div>
+          )}
+          <p className="cp-q">Happy with the draft? {hasVideo ? 'The video uses it as its first frame.' : 'The rest builds on it.'}</p>
+          <div className="cp-acts">
+            {looks.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => onRetake(id)}>Try another look</button>}
+            <button className={`btn btn-sm ${finalCost > balance ? 'btn-warn' : 'btn-invert'}`} onClick={() => onFinal(id)}>
+              {finalCost > balance ? 'Add credits' : hasVideo ? 'Make the video' : 'Finish'}<span className="cost">{fmtCr(finalCost)}</span>
+            </button>
+          </div>
+        </div>
+      )}
       {p.status === 'pending' && (
         <div className="plan-f">
           {activeSecs(p) > 0 ? <span className="dim"><Ico as={Clock} size={12} /> {fmtSecs(activeSecs(p))}</span> : <span />}
           <span className="plan-acts">
             <button className="btn btn-ghost btn-sm" onClick={() => onDiscard(id)}>Discard</button>
             {p.kind === 'build' && <button className="btn btn-ghost btn-sm" onClick={() => onApprove(id, false)} data-tip="Add to canvas, don't generate">Add only</button>}
+            {p.phased && draftCost > 0 && finalCost > 0 ? (
+              <button className={`btn btn-sm ${draftCost > balance ? 'btn-warn' : 'btn-invert'}`} onClick={() => onApprove(id, true, undefined, 'draft')}>
+                {draftCost > balance ? 'Add credits' : 'Make the draft'}<span className="cost">{fmtCr(draftCost)}</span>
+              </button>
+            ) : (
             <button className={`btn btn-sm ${short ? 'btn-warn' : 'btn-invert'}`} onClick={() => onApprove(id, true)} disabled={!p.steps.length || off.length === p.steps.length}>
               {short ? 'Add credits' : cost > 0 ? 'Generate' : 'Apply'}{cost > 0 && <span className="cost">{fmtCr(cost)}</span>}
             </button>
+            )}
           </span>
         </div>
       )}
@@ -272,6 +320,45 @@ function Plan({ p, id, auto, setAuto, isLast, onApprove, onDiscard, onToggleStep
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Quick questions before planning: answers are pre-picked from the prompt, so Continue always works.
+function Brief({ b, onAnswer }) {
+  const [v, setV] = useState(() => Object.fromEntries(b.fields.map((f) => [f.key, f.value])));
+  const set = (k, x) => setV((o) => ({ ...o, [k]: x }));
+  if (b.status !== 'pending') {
+    const vals = b.values || v;
+    const parts = b.fields.map((f) => (f.type === 'text' ? null : f.options.find((o) => o.id === vals[f.key])?.label)).filter(Boolean);
+    return <div className="brief-done"><Ico as={Check} size={12} /><span>{parts.join(' · ')}</span></div>;
+  }
+  return (
+    <div className="brief">
+      {b.fields.map((f) => (
+        <div key={f.key} className="brief-q">
+          <span className="brief-l">{f.label}</span>
+          {f.type === 'asset' && (
+            <div className="brief-assets" role="radiogroup" aria-label={f.label}>
+              {f.options.map((o) => (
+                <button key={o.id} role="radio" aria-checked={v[f.key] === o.id} className={`brief-asset ${v[f.key] === o.id ? 'on' : ''}`} onClick={() => set(f.key, o.id)} data-tip={o.label}>
+                  {o.thumb ? <img src={o.thumb} alt="" /> : <span className="brief-none"><Ico as={X} size={14} /></span>}
+                  {v[f.key] === o.id && <i className="brief-tick"><Ico as={Check} size={10} /></i>}
+                </button>
+              ))}
+            </div>
+          )}
+          {f.type === 'chips' && (
+            <div className="brief-chips" role="radiogroup" aria-label={f.label}>
+              {f.options.map((o) => <button key={o.id} role="radio" aria-checked={v[f.key] === o.id} className={`brief-chip ${v[f.key] === o.id ? 'on' : ''}`} onClick={() => set(f.key, o.id)}>{o.label}</button>)}
+            </div>
+          )}
+          {f.type === 'text' && <textarea className="brief-ta" rows={2} value={v[f.key] || ''} onChange={(e) => set(f.key, e.target.value)} />}
+        </div>
+      ))}
+      <div className="brief-f">
+        <button className="btn btn-invert btn-sm" onClick={() => onAnswer(v)}>Continue</button>
+      </div>
     </div>
   );
 }

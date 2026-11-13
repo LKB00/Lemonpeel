@@ -861,6 +861,93 @@ function Studio({ saved }) {
   };
 
   /* ---------- agent: plan workflows, edit the selection, approve before spending ---------- */
+  // Splits a build into a cheap draft (script, stills) and the expensive final (video, audio), so people check the look before paying for it.
+  const phased = (p) => {
+    const fin = new Set(p.steps.filter((st) => KINDS[st.kind].runnable && ['video', 'audio'].includes(st.kind)).map((st) => st.key));
+    let grew = true;
+    while (grew) { grew = false; p.links.forEach(([a, b]) => { if (fin.has(a) && !fin.has(b)) { fin.add(b); grew = true; } }); }
+    const hasDraft = p.steps.some((st) => !fin.has(st.key) && KINDS[st.kind].runnable);
+    p.phased = hasDraft && fin.size > 0;
+    p.steps.forEach((st) => { st.phase = p.phased ? (fin.has(st.key) ? 'final' : 'draft') : undefined; });
+    if (p.phased) p.steps = [...p.steps.filter((st) => st.phase === 'draft'), ...p.steps.filter((st) => st.phase === 'final')];
+    return p;
+  };
+  const templatePlan = (t, v = {}) => {
+    const steps = t.nodes.map((tn) => {
+      let data = { ...tn.data };
+      if (tn.data.expose && v[tn.key] != null) data = tn.kind === 'upload' ? { ...data, asset: v[tn.key] } : { ...data, prompt: v[tn.key] };
+      if (v.aspect && KINDS[tn.kind].aspect) data.aspect = v.aspect;
+      if (v.dur && tn.kind === 'video') data.duration = v.dur;
+      const run = KINDS[tn.kind].runnable;
+      const d = makeData(tn.kind, data);
+      const note = tn.kind === 'upload' ? assetOf(data.asset).name : (data.prompt || KINDS[tn.kind].desc);
+      return { key: tn.key, kind: tn.kind, title: data.title, data, note, cost: run ? costOf(d) : 0, secs: run ? secsOf(d) : 0 };
+    });
+    return phased({ kind: 'build', text: t.name, project: t.project, steps, links: t.edges.map((e) => [...e]), ext: [], cost: steps.reduce((a, x) => a + x.cost, 0), secs: steps.reduce((a, x) => a + x.secs, 0), status: 'pending' });
+  };
+  const FORMAT_OPTS = ['16:9', '9:16', '1:1', '4:5'].map((x) => ({ id: x, label: x }));
+  const LENGTH_OPTS = [5, 10, 15].map((x) => ({ id: x, label: `${x}s` }));
+  const assetOpts = (pred) => allAssets().filter((a) => a.type === 'image' && pred(a)).map((a) => ({ id: a.id, label: a.name, thumb: a.url }));
+  const briefForPrompt = (p, opt) => {
+    const f = []; const w = p.want;
+    if (w.image || w.video) f.push({ key: 'asset', label: 'Feature', type: 'asset', options: [...assetOpts((a) => ['Products', 'Characters'].includes(a.cat)), { id: 'none', label: 'Nothing' }], value: p.asset });
+    if (p.steps.some((st) => KINDS[st.kind].aspect)) f.push({ key: 'aspect', label: 'Format', type: 'chips', options: FORMAT_OPTS, value: opt.aspect || defaults.aspect || '16:9' });
+    if (w.video) f.push({ key: 'dur', label: 'Length', type: 'chips', options: LENGTH_OPTS, value: p.dur });
+    f.push({ key: 'tone', label: 'Tone', type: 'chips', options: ['Playful', 'Premium', 'Bold', 'Calm'].map((x) => ({ id: x, label: x })), value: 'Playful' });
+    if (w.voice) f.push({ key: 'voice', label: 'Voice', type: 'chips', options: ['Warm', 'Calm', 'Energetic'].map((x) => ({ id: x, label: x })), value: 'Warm' });
+    return f;
+  };
+  const briefForTemplate = (t) => {
+    const f = [];
+    t.nodes.forEach((tn) => {
+      const ex = tn.data.expose; if (!ex) return;
+      if (tn.kind === 'upload') { const cat = assetOf(tn.data.asset).cat; f.push({ key: tn.key, label: ex.label, type: 'asset', options: assetOpts((a) => a.cat === cat), value: tn.data.asset }); }
+      else if (ex.type === 'choice') f.push({ key: tn.key, label: ex.label, type: 'chips', options: ex.options.map((x) => ({ id: x, label: x })), value: tn.data.prompt });
+      else f.push({ key: tn.key, label: ex.label, type: 'text', value: tn.data.prompt });
+    });
+    if (t.nodes.some((tn) => KINDS[tn.kind].aspect)) f.push({ key: 'aspect', label: 'Format', type: 'chips', options: FORMAT_OPTS, value: defaults.aspect || '16:9' });
+    if (t.nodes.some((tn) => tn.kind === 'video')) f.push({ key: 'dur', label: 'Length', type: 'chips', options: LENGTH_OPTS, value: 5 });
+    return f;
+  };
+  const setMsg = (mid, next) => setMessages((m) => m.map((x) => (x.id === mid ? next(x) : x)));
+  const startTemplate = (t) => {
+    setView('canvas'); setRightTab('agent'); setTemplatesOpen(false);
+    const u = { id: 'm' + uid(), role: 'user', text: t.name };
+    const mid = 'm' + uid();
+    if (auto) {
+      const p = templatePlan(t);
+      setMessages((m) => [...m, u, { id: mid, role: 'agent', text: 'Here\'s the plan.', proposal: p }]);
+      setTimeout(() => approve(mid, true, p), 60);
+      return;
+    }
+    setMessages((m) => [...m, u, { id: mid, role: 'agent', thinking: true, trace: ['Opening the template', `${t.nodes.length} steps, ${t.out.toLowerCase()} at the end`, 'Finding what you need to fill in'] }]);
+    setTimeout(() => setMsg(mid, () => ({ id: mid, role: 'agent', text: 'Fill these in and I\'ll lay it out.', brief: { src: 'template', tid: t.id, fields: briefForTemplate(t), status: 'pending', preview: templatePlan(t) } })), 1300);
+  };
+  const answerBrief = (mid, values) => {
+    const b = messages.find((x) => x.id === mid)?.brief;
+    if (!b || b.status !== 'pending') return;
+    const p = b.src === 'template' ? templatePlan(TEMPLATES.find((t) => t.id === b.tid), values) : planBuild(b.text, { ...b.opt, ...values });
+    setMsg(mid, (x) => ({ ...x, brief: { ...b, status: 'done', values, preview: p } }));
+    const pid = 'm' + uid();
+    const intro = p.phased ? 'Here\'s the plan. I\'ll make a quick draft first, so you can check the look before the expensive part.' : 'Here\'s the plan. Untick anything you don\'t need.';
+    setMessages((m) => [...m, { id: pid, role: 'agent', thinking: true, trace: ['Applying your answers', 'Picking the best models', 'Pricing each step'] }]);
+    setTimeout(() => setMsg(pid, () => ({ id: pid, role: 'agent', text: intro, proposal: p })), 1100);
+  };
+  const runFinal = (mid) => {
+    const p = messages.find((x) => x.id === mid)?.proposal;
+    if (!p?.tracked) return;
+    const ids = p.tracked.filter((t) => p.steps[t.step]?.phase === 'final' && rf.getNode(t.nodeId)).map((t) => t.nodeId);
+    const cost = ids.reduce((a, id) => a + costOf(rf.getNode(id).data, runsFor(id)), 0);
+    if (cost > balRef.current) { openCredits(cost - balRef.current); return; }
+    setProposal(mid, { phase: 'final' });
+    runSequence(ids);
+  };
+  const retakeDraft = (mid) => {
+    const p = messages.find((x) => x.id === mid)?.proposal;
+    if (!p?.tracked) return;
+    const ids = p.tracked.filter((t) => p.steps[t.step]?.phase === 'draft' && p.steps[t.step].kind === 'image' && rf.getNode(t.nodeId)).map((t) => t.nodeId);
+    if (ids.length) runSequence(ids);
+  };
   const planBuild = (text, opt = {}) => {
     const t = text.toLowerCase();
     // attachments from the composer: assets (image / video / audio) and nodes already on the canvas
@@ -868,7 +955,7 @@ function Studio({ saved }) {
     const attAssets = att.filter((x) => x.src === 'asset').map((x) => assetOf(x.id));
     const attNodes = att.filter((x) => x.src === 'node').map((x) => rf.getNode(x.id)).filter(Boolean);
     const firstImg = attAssets.find((x) => x.type !== 'video' && x.type !== 'audio');
-    const asset = opt.asset ? assetOf(opt.asset) : firstImg || allAssets().find((a) => { const nm = a.name.toLowerCase(); return t.includes(nm) || nm.split(' ').some((w) => w.length > 3 && t.includes(w)) || (a.id === 'tee' && /\b(t-?shirt|shirt|tee)\b/.test(t)); });
+    const asset = opt.asset === 'none' ? null : opt.asset ? assetOf(opt.asset) : firstImg || allAssets().find((a) => { const nm = a.name.toLowerCase(); return t.includes(nm) || nm.split(' ').some((w) => w.length > 3 && t.includes(w)) || (a.id === 'tee' && /\b(t-?shirt|shirt|tee)\b/.test(t)); });
     const want = {
       video: /video|clip|\bads?\b|reel|commercial|anim|footage|tiktok|motion|\b\d+ ?s\b|second/.test(t),
       image: /image|photo|poster|picture|still|shots?\b|thumbnail|banner|storyboard|frame/.test(t),
@@ -881,22 +968,23 @@ function Studio({ saved }) {
     if (!Object.values(want).some(Boolean)) want.image = true;
     const nWord = (t.match(/\b(two|three|four|2|3|4)\b/) || [])[1];
     const n = { two: 2, three: 3, four: 4 }[nWord] || Number(nWord) || 1;
-    const dur = /10 ?s|10-second|ten second|10 second/.test(t) ? 10 : /\b3 ?s\b|3-second/.test(t) ? 3 : 5;
+    const dur = opt.dur || (/10 ?s|10-second|ten second|10 second/.test(t) ? 10 : /\b3 ?s\b|3-second/.test(t) ? 3 : 5);
+    const tone = opt.tone ? `, ${opt.tone.toLowerCase()} tone` : '';
     const steps = []; const links = [];
     const add = (key, kind, title, data, note) => steps.push({ key, kind, title, data, note });
     if (asset) add('src', 'upload', asset.name, { asset: asset.id }, 'Your image, used as the reference');
     if (want.script || want.voice) add('script', 'writer', 'Script', { prompt: `Write a short script for: ${text}` }, 'Hook, lines and a call to action');
     const needImg = want.image || (want.video && asset);
     if (needImg) {
-      add('img', 'image', want.video ? 'Key frame' : n > 1 ? `${n} images` : 'Image', { prompt: text, count: want.video ? 1 : Math.min(4, n), model: asset ? 'Nano Banana Pro' : 'Auto' }, want.video ? 'Sets the look of the video' : asset ? 'Keeps your product consistent' : 'Your image');
+      add('img', 'image', want.video ? 'Key frame' : n > 1 ? `${n} images` : 'Image', { prompt: text + tone, count: want.video ? 1 : Math.min(4, n), model: asset ? 'Nano Banana Pro' : 'Auto' }, want.video ? 'Sets the look of the video' : asset ? 'Keeps your product consistent' : 'Your image');
       if (asset) links.push(['src', 'img', 'ref']);
     }
     if (want.video) {
-      add('vid', 'video', 'Video', { prompt: text, duration: dur }, `${dur}s clip`);
+      add('vid', 'video', 'Video', { prompt: text + tone, duration: dur }, `${dur}s clip`);
       if (needImg) links.push(['img', 'vid', 'start']); else if (asset) links.push(['src', 'vid', 'start']);
       if (want.script) links.push(['script', 'vid', 'prompt']);
     }
-    if (want.voice) { add('vo', 'audio', 'Voice-over', { prompt: 'Warm, upbeat narrator' }, 'Reads the script'); links.push(['script', 'vo', 'script']); }
+    if (want.voice) { add('vo', 'audio', 'Voice-over', { prompt: `${opt.voice || 'Warm'}, upbeat narrator` }, 'Reads the script'); links.push(['script', 'vo', 'script']); }
     if (want.music) { add('mus', 'audio', 'Music', { prompt: 'Light, upbeat track', model: 'Score Gen' }, 'Background track'); if (want.video) links.push(['vid', 'mus', 'video']); }
     const has = (k) => steps.some((x) => x.key === k);
     attAssets.filter((x) => x !== asset).forEach((x, i) => {
@@ -919,7 +1007,7 @@ function Studio({ saved }) {
       if (opt.brand && opt.brand !== (projectBrandId || 'none') && KINDS[st.kind].runnable) st.data = { ...st.data, brand: opt.brand };
     });
     steps.forEach((st) => { const d = makeData(st.kind, st.data); st.cost = KINDS[st.kind].runnable ? costOf(d) : 0; st.secs = KINDS[st.kind].runnable ? secsOf(d) : 0; });
-    return { kind: 'build', text, steps, links, ext, cost: steps.reduce((s2, x) => s2 + x.cost, 0), secs: steps.reduce((s2, x) => s2 + x.secs, 0), status: 'pending' };
+    return phased({ kind: 'build', text, steps, links, ext, want, asset: asset?.id || 'none', dur, cost: steps.reduce((s2, x) => s2 + x.cost, 0), secs: steps.reduce((s2, x) => s2 + x.secs, 0), status: 'pending' });
   };
   const EDIT_MAP = [
     [/animat|turn (it )?into (a )?video|make (it )?(a )?video/, 'Animate into video'],
@@ -1034,6 +1122,14 @@ function Studio({ saved }) {
       }, 650);
       return;
     }
+    // a new build gets a few quick questions first; Auto skips them
+    if (p.kind === 'build' && !auto) {
+      const mid = 'm' + uid();
+      const trace = ['Reading your brief', p.asset !== 'none' ? `Found ${assetOf(p.asset).name} in your Library` : 'Checking your Library', `Sketching ${p.steps.length} step${p.steps.length === 1 ? '' : 's'}`];
+      setMessages((m) => [...m, u, { id: mid, role: 'agent', thinking: true, trace }]);
+      setTimeout(() => setMsg(mid, () => ({ id: mid, role: 'agent', text: 'A few details first.', brief: { src: 'prompt', text, opt, fields: briefForPrompt(p, opt), status: 'pending', preview: p } })), 1300);
+      return;
+    }
     const intro = p.kind === 'build'
       ? `Here's how I'd make it. Untick anything you don't need.`
       : `Here's the change for ${target}. Nothing gets overwritten.`;
@@ -1045,14 +1141,16 @@ function Studio({ saved }) {
     }, 650);
   };
   const setProposal = (mid, patch) => setMessages((m) => m.map((x) => (x.id === mid ? { ...x, proposal: { ...x.proposal, ...patch } } : x)));
-  const approve = (mid, generate, given) => {
+  const approve = (mid, generate, given, mode) => {
     const p0 = given || messages.find((x) => x.id === mid)?.proposal;
     if (!p0 || p0.status !== 'pending') return;
     const off = p0.off || [];
     const keep = p0.steps.map((st, i) => ({ st, i })).filter(({ i }) => !off.includes(i));
     const p = { ...p0, steps: keep.map((x) => x.st), ops: p0.ops ? keep.map((x) => p0.ops[x.i]) : undefined, cost: keep.reduce((a, x) => a + x.st.cost, 0) };
     if (p.kind === 'build') { const keys = new Set(p.steps.map((x) => x.key)); p.links = p0.links.filter(([a, b]) => keys.has(a) && keys.has(b)); }
-    if (generate && p.cost > balRef.current) { openCredits(p.cost - balRef.current); return; }
+    const draftOnly = mode === 'draft' && p0.phased;
+    const runCost = draftOnly ? p.steps.filter((st) => st.phase !== 'final').reduce((a, x) => a + x.cost, 0) : p.cost;
+    if (generate && runCost > balRef.current) { openCredits(runCost - balRef.current); return; }
     checkpoint();
     const tracked = [];
     if (p.kind === 'build') {
@@ -1060,6 +1158,7 @@ function Studio({ saved }) {
       const all = rf.getNodes().filter((n) => n.type !== 'frame' && !n.parentId);
       const baseX = all.length ? Math.max(...all.map((n) => n.position.x + size(n).w)) + 160 : c.x - 300;
       const baseY = all.length ? Math.min(...all.map((n) => n.position.y)) : c.y - 60;
+      if (p.project && !all.length) setProjectName(p.project);
       const rank = {};
       p.steps.forEach((st) => { const ins = p.links.filter((l) => l[1] === st.key); rank[st.key] = ins.length ? Math.max(...ins.map((l) => (rank[l[0]] ?? 0) + 1)) : 0; });
       const rows = {}; const ids = {};
@@ -1078,7 +1177,8 @@ function Studio({ saved }) {
       setTimeout(() => { resolveOverlaps(); rf.fitView({ duration: 450, padding: 0.18, maxZoom: 1 }); }, 120);
       if (generate) {
         keep.forEach(({ st, i }) => { if (KINDS[st.kind].runnable) tracked.push({ step: i, nodeId: ids[st.key], base: 0 }); });
-        setTimeout(() => runSequence(ns.filter((n) => KINDS[n.data.kind].runnable).map((n) => n.id)), 260);
+        const toRun = keep.filter(({ st }) => KINDS[st.kind].runnable && !(draftOnly && st.phase === 'final')).map(({ st }) => ids[st.key]);
+        setTimeout(() => runSequence(toRun), 260);
       }
     } else {
       const runIds = [];
@@ -1108,7 +1208,7 @@ function Studio({ saved }) {
         setTimeout(async () => { await runSequence(uniq); for (let r = 0; r < repeat; r++) await runSequence([runIds[0]]); }, 220);
       }
     }
-    setProposal(mid, { status: 'approved', ran: generate && p.cost > 0, tracked: generate ? tracked : [] });
+    setProposal(mid, { status: 'approved', ran: generate && p.cost > 0, tracked: generate ? tracked : [], phase: generate ? (draftOnly ? 'draft' : 'all') : undefined });
   };
   const discard = (mid) => setProposal(mid, { status: 'discarded' });
   const toggleStep = (mid, i) => setMessages((m) => m.map((x) => (x.id === mid ? { ...x, proposal: { ...x.proposal, off: (x.proposal.off || []).includes(i) ? x.proposal.off.filter((k) => k !== i) : [...(x.proposal.off || []), i] } } : x)));
@@ -1118,7 +1218,7 @@ function Studio({ saved }) {
     const k = KINDS[n.data.kind];
     const o = outputOf(n);
     const done = !k.runnable || (n.data.status === 'done' && (n.data.takes || []).length > base);
-    return { title: n.data.title || k.label, kind: n.data.kind, status: n.data.status, progress: n.data.progress, done, thumb: o?.url };
+    return { title: n.data.title || k.label, kind: n.data.kind, status: n.data.status, progress: n.data.progress, done, thumb: o?.url, text: o?.text };
   };
   const agentSuggestions = () => {
     const ns = rf.getNodes().filter((n) => n.type !== 'frame');
@@ -1149,7 +1249,7 @@ function Studio({ saved }) {
     openInputs: (nodeId) => { holdInputs(); setAttach((a) => (a && a.nodeId === nodeId && a.step === 'pick' ? a : { nodeId, step: 'list' })); },
     leaveInputs: () => releaseInputs(),
     toast, reasonFor, inputsList, runNode, runSelected, runAll, askRunAll, runGroup, pendingIds, addNext, openCredits, setLeftTab,
-    useTemplate, addFromPanel,
+    useTemplate, startTemplate, addFromPanel,
     openCreate: (kind) => toggleDock({ type: 'create', kind }),
     addAsset,
     brands: () => brands, projectBrand: () => projectBrand, openBrands: () => setDock({ type: 'brand' }),
@@ -1280,7 +1380,7 @@ function Studio({ saved }) {
       { id: 'tidy', icon: LayoutGrid, label: 'Tidy up canvas', hint: 'Lay out left to right', kbd: '⇧T', run: () => tidy(false) },
       { id: 'fit', icon: Maximize, label: 'Fit view', kbd: 'F', run: () => rf.fitView({ duration: 300, padding: 0.2, maxZoom: 1 }) },
       { id: 'form', icon: ListChecks, label: 'Switch to Form view', run: () => setView('form') },
-      ...TEMPLATES.map((t) => ({ id: 'tpl-' + t.id, icon: Workflow, label: `Use template: ${t.name}`, hint: t.desc, run: () => useTemplate(t) })),
+      ...TEMPLATES.map((t) => ({ id: 'tpl-' + t.id, icon: Workflow, label: `Use template: ${t.name}`, hint: t.desc, run: () => startTemplate(t) })),
       { id: 'keys', icon: Keyboard, label: 'Keyboard shortcuts', run: () => setShortcuts(true) },
     ];
     return [...add, ...cmds];
@@ -1513,7 +1613,7 @@ function Studio({ saved }) {
               {minimap && <MiniMap position="bottom-left" pannable zoomable nodeColor={() => '#3a3e44'} maskColor="#1a1d21" bgColor="#24272c" style={{ background: '#24272c' }} />}
             </ReactFlow>
 
-            {ready && nodes.length === 0 && view === 'canvas' && <EmptyState composerCtx={composerCtx} auto={auto} setAuto={setAuto} actions={actions} addNode={addNode} viewCenter={viewCenter} onTemplates={() => setTemplatesOpen(true)} planPending={messages.some((m) => m.thinking || m.proposal?.status === 'pending')} plan={[...messages].reverse().find((m) => m.proposal?.status === 'pending' && m.proposal.kind === 'build')?.proposal} />}
+            {ready && nodes.length === 0 && view === 'canvas' && <EmptyState composerCtx={composerCtx} auto={auto} setAuto={setAuto} actions={actions} addNode={addNode} viewCenter={viewCenter} onTemplates={() => setTemplatesOpen(true)} planPending={messages.some((m) => m.thinking || m.proposal?.status === 'pending' || m.brief?.status === 'pending')} plan={(() => { const m = [...messages].reverse().find((x) => (x.proposal?.status === 'pending' && x.proposal.kind === 'build') || x.brief); return m ? m.proposal || m.brief.preview : undefined; })()} />}
 
             {selected.length > 1 && (() => {
               // Toolbar sits on the selection: centred above it, or below when there's no room; follows pan/zoom/drag.
@@ -1598,7 +1698,7 @@ function Studio({ saved }) {
                       selection={selected.filter((n) => n.type !== 'frame')} defaults={defaults} balance={balance}
                       onCreate={createFromDock} onClose={() => setDock(null)} />
                   )}
-                  {dock.type === 'templates' && <TemplatesModal onClose={() => setDock(null)} onUse={(t) => { setDock(null); useTemplate(t); }} />}
+                  {dock.type === 'templates' && <TemplatesModal onClose={() => setDock(null)} onUse={(t) => { setDock(null); startTemplate(t); }} />}
                   {dock.type === 'assets' && <AssetsModal assets={allAssets()} onRemove={removeAsset} onRename={(a, name) => editAsset(a.id, { name })} onClose={() => setDock(null)} onAdd={(a) => { addAssetNode(a); toast(`Added ${a.name}`); }} onUpload={(a) => { const na = { id: 'u' + uid(), source: 'upload', ...a }; setSavedAssets((x) => [...x, na]); toast(`Uploaded ${a.name}`); }} />}
                   {dock.type === 'brand' && <BrandModal brands={brands} defaultId={projectBrandId} onUpdate={(id, patch) => setBrands((x) => x.map((b) => (b.id === id ? { ...b, ...patch } : b)))} onAdd={(b) => { setBrands((x) => [...x, b]); if (!projectBrandId) setProjectBrandId(b.id); toast(`${b.name} saved${projectBrandId ? '' : ' · default for this project'}`); }} onRemove={(id) => { setBrands((x) => x.filter((b) => b.id !== id)); if (projectBrandId === id) setProjectBrandId(null); toast('Brand kit deleted'); }} onSetDefault={(id) => { setProjectBrandId(id); toast(id ? `${brands.find((b) => b.id === id)?.name} is the default` : 'No default brand'); }} onClose={() => setDock(null)} />}
                 </DockCtx.Provider>
@@ -1629,7 +1729,7 @@ function Studio({ saved }) {
                 </>)} />
               {rightTab === 'comments' && <CommentsPanel comments={comments} rf={rf} openId={openComment} nodeTitle={(id) => { const n = rf.getNode(id); return n ? (n.data.title || KINDS[n.data.kind]?.label) : null; }}
                 onOpen={(t) => { const p = threadPoint(rf, t); rf.setCenter(p.x, p.y, { zoom: Math.max(rf.getZoom(), 0.8), duration: 400 }); setTimeout(() => setOpenComment(t.id), 420); }} />}
-              {rightTab === 'agent' && <AgentPanel onRevert={revertNote} composer={composerCtx} messages={messages} auto={auto} setAuto={setAuto} onApprove={approve} onDiscard={discard} onAsk={ask} onClear={newChat} onToggleStep={toggleStep} balance={balance} nodeInfo={nodeInfo} onFocusNode={(id) => actions.focusTake(id, Math.max(0, (rf.getNode(id)?.data.takes || []).length - 1))} selection={selected.filter((n) => n.type !== 'frame')} suggestions={agentSuggestions()} />}
+              {rightTab === 'agent' && <AgentPanel onRevert={revertNote} composer={composerCtx} messages={messages} auto={auto} setAuto={setAuto} onApprove={approve} onDiscard={discard} onAnswer={answerBrief} onFinal={runFinal} onRetake={retakeDraft} onAsk={ask} onClear={newChat} onToggleStep={toggleStep} balance={balance} nodeInfo={nodeInfo} onFocusNode={(id) => actions.focusTake(id, Math.max(0, (rf.getNode(id)?.data.takes || []).length - 1))} selection={selected.filter((n) => n.type !== 'frame')} suggestions={agentSuggestions()} />}
               {rightTab === 'outputs' && <Outputs nodes={nodes} actions={actions} onClose={() => setRightTab(null)} />}
             </aside>
           )}
@@ -1739,7 +1839,7 @@ function Studio({ saved }) {
         {palette && <Palette commands={paletteCommands} title={palette.from ? 'Add a connected step' : undefined} onClose={() => setPalette(null)} onPick={(c) => { setPalette(null); c.run(); }} />}
         {credits && <CreditsModal need={credits.need} balance={balance} spent={runs.filter((r) => r.status === 'done').reduce((s, r) => s + r.cost, 0)} onClose={() => setCredits(null)} onBuy={buyCredits} />}
         {shortcuts && <ShortcutsModal onClose={() => setShortcuts(false)} />}
-        {templatesOpen && <TemplatesModal onClose={() => setTemplatesOpen(false)} onUse={useTemplate} />}
+        {templatesOpen && <TemplatesModal onClose={() => setTemplatesOpen(false)} onUse={startTemplate} />}
 
         {nodeMenu && (() => {
           const n = rf.getNode(nodeMenu.nodeId);
@@ -2003,7 +2103,7 @@ function EmptyState({ actions, onTemplates, planPending, plan, composerCtx, auto
         </div>
         <div className="starts">
           {TEMPLATES.map((t) => (
-            <button key={t.id} className="startchip" onClick={() => actions.useTemplate(t)}>{t.name}</button>
+            <button key={t.id} className="startchip" onClick={() => actions.startTemplate(t)}>{t.name}</button>
           ))}
           <button className="startchip ghost" onClick={onTemplates}>All templates<Ico as={ArrowRight} size={14} /></button>
         </div>
