@@ -577,9 +577,12 @@ export const AtIcon = AtSign;
 const VIEWS = [{ id: 'new', label: 'New user' }, { id: 'sample', label: 'Returning user' }];
 export function ViewAs({ value, onPick }) {
   const [open, setOpen] = useState(false);
+  // Draws the eye until someone opens it once; remembered per browser.
+  const [seen, setSeen] = useState(() => { try { return localStorage.getItem('lp-viewas-seen') === '1'; } catch { return false; } });
   const wrap = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
+    if (!seen) { setSeen(true); try { localStorage.setItem('lp-viewas-seen', '1'); } catch { /* storage off */ } }
     const down = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
     const key = (e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', down, true);
@@ -600,8 +603,8 @@ export function ViewAs({ value, onPick }) {
           ))}
         </div>
       )}
-      <button type="button" className={`viewas-btn ${open ? 'on' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="menu">
-        Viewing as: {cur.label}<Ico as={ChevronDown} size={12} />
+      <button type="button" className={`viewas-btn ${open ? 'on' : ''} ${seen ? '' : 'hint'}`} onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="menu">
+        <span className="viewas-dot" aria-hidden="true" /><span className="viewas-t">Viewing as: {cur.label}</span><Ico as={ChevronDown} size={12} />
       </button>
     </div>
   );

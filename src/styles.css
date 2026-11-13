@@ -2551,3 +2551,14 @@ kbd.onyellow { background: none !important; color: rgba(10, 10, 10, .55); }
 .es .es-i svg { width: 16px; height: 16px; }
 .es-lg .es-p { width: 340px; max-width: 100%; }
 .es-md .es-p { width: 240px; max-width: 100%; }
+
+/* Viewing as: a live dot and a slow sheen until it has been opened once */
+.viewas-btn { gap: 6px; background: rgba(255, 255, 255, .04); padding: 0 8px 0 10px; }
+.viewas-dot { position: relative; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; opacity: .9; }
+.viewas-btn.hint .viewas-dot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--accent); animation: viewas-ping 2.4s cubic-bezier(.2, .7, .3, 1) infinite; }
+@keyframes viewas-ping { 0% { transform: scale(1); opacity: .55; } 70%, 100% { transform: scale(3.2); opacity: 0; } }
+.viewas-btn.hint .viewas-t { background: linear-gradient(100deg, var(--text-3) 40%, var(--text) 50%, var(--text-3) 60%) 0 0 / 300% 100% no-repeat; -webkit-background-clip: text; background-clip: text; color: transparent; animation: viewas-sheen 5s ease-in-out 1.2s infinite; background-position: 100% 0; }
+@keyframes viewas-sheen { 0% { background-position: 100% 0; } 30%, 100% { background-position: 0% 0; } }
+.viewas-btn.hint { animation: viewas-in .5s ease-out .4s both; }
+@keyframes viewas-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .viewas-btn.hint, .viewas-btn.hint .viewas-dot::after, .viewas-btn.hint .viewas-t { animation: none; } .viewas-btn.hint .viewas-t { color: var(--text-2); background: none; } }
